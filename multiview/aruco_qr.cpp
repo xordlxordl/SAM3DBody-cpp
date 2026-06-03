@@ -127,8 +127,8 @@ ArucoQrDetector::ArucoQrDetector(const std::string& dict_name, double default_ma
 {
     int id = aruco_dict_id(dict_name);
     if (id < 0) id = cv::aruco::DICT_6X6_250;   // sensible default for an unknown name
-    impl_->dict        = cv::aruco::getPredefinedDictionary(id);
-    impl_->params      = cv::aruco::DetectorParameters::create();
+    impl_->dict        = cv::makePtr<cv::aruco::Dictionary>(cv::aruco::getPredefinedDictionary(id));
+    impl_->params      = cv::makePtr<cv::aruco::DetectorParameters>();
     impl_->default_len = default_marker_length_m;
 }
 

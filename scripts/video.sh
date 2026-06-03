@@ -3,6 +3,7 @@
 THISDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$THISDIR"
 cd ..
+source scripts/run_env.sh
 
 # ── Parse --save [OUTPUT] from the argument list ─────────────────────────────
 # --save may be:

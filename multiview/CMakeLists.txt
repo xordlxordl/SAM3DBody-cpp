@@ -26,6 +26,14 @@ add_test(NAME calib_test
 # ---------------------------------------------------------------------------
 find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d aruco objdetect videoio)
 
+# OpenCV videoio pulls in GStreamer → libgio → libglib transitively; on some
+# Linux systems (notably WSL2) the linker does not resolve the transitive dep
+# automatically, so we add glib-2.0 explicitly.
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(GLIB glib-2.0)
+endif()
+
 add_library(multiview_aruco_qr STATIC aruco_qr.cpp)
 target_include_directories(multiview_aruco_qr PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(multiview_aruco_qr PUBLIC multiview_calib ${OpenCV_LIBS})
@@ -34,7 +42,8 @@ target_compile_options(multiview_aruco_qr PRIVATE
 )
 
 add_executable(aruco_qr_probe aruco_qr_probe.cpp)
-target_link_libraries(aruco_qr_probe PRIVATE multiview_aruco_qr ${OpenCV_LIBS})
+target_link_libraries(aruco_qr_probe PRIVATE multiview_aruco_qr ${OpenCV_LIBS}
+    $<$<BOOL:${GLIB_FOUND}>:${GLIB_LINK_LIBRARIES}>)
 
 # ---------------------------------------------------------------------------
 # extrinsics — camera placement from shared static markers (pure C++ math) +
@@ -52,7 +61,8 @@ add_test(NAME extrinsics_test COMMAND extrinsics_test)
 
 add_executable(sam_3dbody_extrinsics sam_3dbody_extrinsics.cpp)
 target_link_libraries(sam_3dbody_extrinsics PRIVATE
-    multiview_extrinsics multiview_aruco_qr multiview_calib ${OpenCV_LIBS})
+    multiview_extrinsics multiview_aruco_qr multiview_calib ${OpenCV_LIBS}
+    $<$<BOOL:${GLIB_FOUND}>:${GLIB_LINK_LIBRARIES}>)
 
 # ---------------------------------------------------------------------------
 # sync_time — per-stream QR-timecode -> common clock fit (pure C++) + test +
@@ -70,7 +80,8 @@ add_test(NAME sync_time_test COMMAND sync_time_test)
 
 add_executable(sam_3dbody_synctime sam_3dbody_synctime.cpp)
 target_link_libraries(sam_3dbody_synctime PRIVATE
-    multiview_sync_time multiview_aruco_qr ${OpenCV_LIBS})
+    multiview_sync_time multiview_aruco_qr ${OpenCV_LIBS}
+    $<$<BOOL:${GLIB_FOUND}>:${GLIB_LINK_LIBRARIES}>)
 
 # ---------------------------------------------------------------------------
 # sync_io — read/write the session .sync file (pure C++) + round-trip test +
@@ -90,7 +101,8 @@ add_test(NAME sync_io_test COMMAND sync_io_test)
 add_executable(sam_3dbody_sync sam_3dbody_sync.cpp)
 target_link_libraries(sam_3dbody_sync PRIVATE
     multiview_sync_io multiview_sync_time multiview_extrinsics
-    multiview_aruco_qr multiview_calib ${OpenCV_LIBS})
+    multiview_aruco_qr multiview_calib ${OpenCV_LIBS}
+    $<$<BOOL:${GLIB_FOUND}>:${GLIB_LINK_LIBRARIES}>)
 
 # ---------------------------------------------------------------------------
 # fusion front-end — per-stream offline inference driven by a .sync (reuses the

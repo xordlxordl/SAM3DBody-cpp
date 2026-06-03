@@ -1,0 +1,18 @@
+services:
+  sam3dbody:
+    build:
+      context: .
+      args:
+        CUDA_ARCH: "89"   # 89=RTX 40xx  86=RTX 30xx  75=RTX 20xx
+    image: sam3dbody
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+      - DISPLAY=${DISPLAY:-:0}
+    volumes:
+      - ./onnx:/app/onnx:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    devices:
+      - /dev/video0:/dev/video0
+    command: ["0"]    # webcam index; or: ["video.mp4"] / ["image.jpg"]

@@ -60,10 +60,12 @@ endif()
 # ---------------------------------------------------------------------------
 find_package(CUDAToolkit QUIET)
 if(CUDAToolkit_FOUND)
-    set(CMAKE_CUDA_ARCHITECTURES "86" CACHE STRING "CUDA architectures" FORCE)
+    # Default sm_89 (RTX 4070 Ti / 4080 / 4090); override with -DCMAKE_CUDA_ARCHITECTURES=XX
+    set(CMAKE_CUDA_ARCHITECTURES "89" CACHE STRING "CUDA architectures")
     enable_language(CUDA)
-    set(GGML_CUDA     ON  CACHE BOOL "" FORCE)
-    set(GGML_CUDA_F16 ON  CACHE BOOL "" FORCE)
+    # ggml CUDA disabled: system CUB headers incompatible with CUDA 12+
+    set(GGML_CUDA     OFF CACHE BOOL "" FORCE)
+    set(GGML_CUDA_F16 OFF CACHE BOOL "" FORCE)
     set(WITH_CUDA     ON)
     message(STATUS "CUDA ${CUDAToolkit_VERSION} found (sm_${CMAKE_CUDA_ARCHITECTURES})")
 else()
@@ -166,6 +168,14 @@ endif()
 # ---------------------------------------------------------------------------
 find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio highgui dnn video)
 message(STATUS "OpenCV ${OpenCV_VERSION}")
+
+# OpenCV videoio on some Linux/WSL2 systems pulls in GStreamer → libgio-2.0,
+# which has a transitive dependency on libglib-2.0 not resolved automatically
+# by the linker. Adding it explicitly fixes the undefined-reference error.
+if(UNIX AND NOT APPLE)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lglib-2.0")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -lglib-2.0")
+endif()
 
 set(GRAPHICS_ENGINE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/GraphicsEngine)
 
