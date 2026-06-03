@@ -216,7 +216,7 @@ struct OrtSession
     std::vector<const char*>       input_names,    output_names;
 
     bool load(Ort::Env& e, const std::string& path, bool cuda, int device,
-              bool fp16_io = false, bool trt_ep = false)
+              bool fp16_io = false, bool trt_ep = false, bool warmup = false)
     {
         // Try with the requested EP first; fall back to CPU if it fails to load
         // (e.g. libcudnn not installed, CUDA EP shared library missing).
@@ -280,6 +280,38 @@ struct OrtSession
 
         mem_info = Ort::MemoryInfo::CreateCpu(
                        OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+
+        // Warmup: run one dummy inference to trigger CUDA kernel compilation.
+        // Skipped for large/BF16 models (backbone, decoder) — their JIT compile
+        // time is too long to block loading; CUDA kernel cache warms up after
+        // the first real inference instead.
+        if (warmup) try {
+            std::vector<std::vector<float>> bufs;
+            std::vector<Ort::Value>         dummy_tensors;
+            bool ok = true;
+            for (size_t i = 0; i < n_in && ok; ++i) {
+                auto ti = session->GetInputTypeInfo(i);
+                if (ti.GetONNXType() != ONNX_TYPE_TENSOR) { ok = false; break; }
+                auto tsi = ti.GetTensorTypeAndShapeInfo();
+                if (tsi.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) { ok = false; break; }
+                auto shape = tsi.GetShape();
+                // Replace dynamic dims (<=0) with 1
+                for (auto& d : shape) if (d <= 0) d = 1;
+                size_t n_elems = 1;
+                for (auto d : shape) n_elems *= (size_t)d;
+                bufs.emplace_back(n_elems, 0.f);
+                dummy_tensors.push_back(Ort::Value::CreateTensor<float>(
+                    mem_info, bufs.back().data(), n_elems, shape.data(), shape.size()));
+            }
+            if (ok && !dummy_tensors.empty()) {
+                std::vector<const char*> in_ptrs(input_names.begin(),
+                                                 input_names.begin() + (int)n_in);
+                session->Run(Ort::RunOptions{nullptr},
+                             in_ptrs.data(), dummy_tensors.data(), n_in,
+                             output_names.data(), output_names.size());
+            }
+        } catch (...) {}  // NOLINT: ignore warmup errors
+
         return true;
     }
 
@@ -573,18 +605,16 @@ struct Pipeline::Impl
             cv::resize(bgr, resized, {new_w, new_h}, 0, 0, cv::INTER_LINEAR);
             cv::Mat yolo_in(YH, YW, CV_8UC3, cv::Scalar(114, 114, 114));
             resized.copyTo(yolo_in(cv::Rect(pad_x, pad_y, new_w, new_h)));
-            // HWC uint8 → CHW float32 [0,1]
+            // HWC uint8 BGR → CHW float32 RGB [0,1] via OpenCV (vectorised, ~10× faster)
+            cv::Mat yolo_fp32;
+            yolo_in.convertTo(yolo_fp32, CV_32FC3, 1.0 / 255.0);
+            cv::cvtColor(yolo_fp32, yolo_fp32, cv::COLOR_BGR2RGB);
+            std::vector<cv::Mat> chans(3);
+            cv::split(yolo_fp32, chans);
             std::vector<float> yolo_buf(3 * YH * YW);
-            for (int y = 0; y < YH; ++y)
-            {
-                const uchar* row = yolo_in.ptr<uchar>(y);
-                for (int x = 0; x < YW; ++x)
-                {
-                    yolo_buf[0*YH*YW + y*YW + x] = row[3*x+2] / 255.f; // R
-                    yolo_buf[1*YH*YW + y*YW + x] = row[3*x+1] / 255.f; // G
-                    yolo_buf[2*YH*YW + y*YW + x] = row[3*x+0] / 255.f; // B
-                }
-            }
+            std::memcpy(yolo_buf.data() + 0*YH*YW, chans[0].ptr<float>(), YH*YW*sizeof(float));
+            std::memcpy(yolo_buf.data() + 1*YH*YW, chans[1].ptr<float>(), YH*YW*sizeof(float));
+            std::memcpy(yolo_buf.data() + 2*YH*YW, chans[2].ptr<float>(), YH*YW*sizeof(float));
             // Run YOLO – output shape: [1, num_dets, 56] (or [1, 56, num_dets] depending on export)
             Ort::MemoryInfo mi = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
             std::vector<int64_t> in_shape{1, 3, YH, YW};
