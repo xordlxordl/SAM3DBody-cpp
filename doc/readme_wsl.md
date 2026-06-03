@@ -187,19 +187,64 @@ source scripts/run_env.sh
 ### 3-5. WSL2 웹캠 접근
 
 WSL2는 기본적으로 USB 장치에 직접 접근이 안 됩니다.  
-`usbipd`를 사용해 웹캠을 WSL2로 연결해야 합니다:
+`usbipd-win`을 사용해 웹캠을 WSL2로 연결해야 합니다.
+
+#### 설치 (최초 1회)
+
+**Windows PowerShell (관리자):**
+```powershell
+winget install usbipd
+```
+
+#### 웹캠 BUSID 확인 및 바인딩 (최초 1회, 관리자 필요)
 
 ```powershell
 # Windows PowerShell (관리자)
-winget install usbipd
-usbipd list                         # 웹캠 BUSID 확인
-usbipd bind --busid <BUSID>
-usbipd attach --wsl --busid <BUSID>
+usbipd list              # 웹캠 BUSID 확인 (예: 6-1)
+usbipd bind --busid 6-1  # 최초 1회만 필요
+```
+
+> `bind`는 최초 1회만 실행하면 재부팅 후에도 유지됩니다.
+
+#### 웹캠 연결 / 해제 (매 세션)
+
+`bind` 이후부터는 **일반 PowerShell 또는 WSL2**에서 실행 가능합니다:
+
+```powershell
+# Windows PowerShell (일반)
+usbipd attach --wsl --busid 6-1   # WSL2에 연결
+usbipd detach --busid 6-1         # 연결 해제
 ```
 
 ```bash
-# WSL2에서 확인
+# WSL2에서도 직접 실행 가능
+usbipd.exe attach --wsl --busid 6-1
+```
+
+#### run.sh 자동 연결
+
+`./run.sh`는 웹캠 소스(`0`, `/dev/videoX`)를 지정할 경우  
+`/dev/video0`이 없으면 `usbipd.exe`로 자동 탐색·연결을 시도합니다.
+
+```bash
+./run.sh        # /dev/video0 없으면 자동 attach 후 실행
+./run.sh 0      # 동일
+```
+
+자동 연결이 실패하면 다음 메시지와 함께 필요한 조치를 안내합니다:
+
+```
+[run.sh] No webcam device found (/dev/video0).
+         Install usbipd-win on Windows and run as Admin:
+           usbipd bind --busid <BUSID>
+         Then retry ./run.sh   (auto-attach will handle the rest)
+```
+
+#### WSL2에서 장치 확인
+
+```bash
 ls /dev/video*
+# /dev/video0  /dev/video1  ...
 ```
 
 ---
@@ -336,6 +381,24 @@ bash scripts/build.sh
 ```bash
 ./run.sh 0 --backbone backbone_fp32.onnx --cuda -1
 ```
+
+---
+
+### `Cannot open input: 0` / `can't open camera by index`
+
+**원인**: WSL2에 웹캠 장치(`/dev/video0`)가 없음 — usbipd 연결 필요  
+**해결**:
+```powershell
+# Windows PowerShell (관리자, 최초 1회)
+usbipd bind --busid 6-1
+```
+```bash
+# WSL2 (매 세션 또는 run.sh 자동 처리)
+usbipd.exe attach --wsl --busid 6-1
+./run.sh
+```
+
+자세한 내용은 [3-5. WSL2 웹캠 접근](#3-5-wsl2-웹캠-접근) 참고.
 
 ---
 
